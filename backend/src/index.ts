@@ -1,168 +1,63 @@
-import express from "express";
-// import { random } from "./utils";
-import jwt from "jsonwebtoken";
-// import { ContentModel, LinkModel, UserModel } from "./db";
-// import { JWT_PASSWORD } from "./config";
-// import { userMiddleware } from "./middleware";
-// import cors from "cors";
+import express, { Request, Response, NextFunction } from "express";
+import cors from "cors";
+import "dotenv/config";
+import { connectDB } from "./config/db";
+import { PORT, CORS_ORIGIN } from "./config";
+import apiRouter from "./routes";
 
 const app = express();
-// app.use(express.json());
-// app.use(cors());
 
-app.post("/api/v1/signup", async (req, res) => {
-    // TODO: zod validation , hash the password
-    const username = req.body.username;
-    const password = req.body.password;
+// Middlewares
+app.use(
+  cors({
+    origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(","),
+    credentials: true,
+  })
+);
+app.use(express.json());
 
-    try {
-        await UserModel.create({
-            username: username,
-            password: password
-        }) 
+// Basic health check
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
-        res.json({
-            message: "User signed up"
-        })
-    } catch(e) {
-        res.status(411).json({
-            message: "User already exists"
-        })
-    }
-})
+// Main API v1 router
+app.use("/api/v1", apiRouter);
 
-app.post("/api/v1/signin", async (req, res) => {
-    const username = req.body.username;
-    const password = req.body.password;
+// 404 handler
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    message: `Cannot ${req.method} ${req.originalUrl}`,
+  });
+});
 
-    const existingUser = await UserModel.findOne({
-        username,
-        password
-    })
-    if (existingUser) {
-        const token = jwt.sign({
-            id: existingUser._id
-        }, JWT_PASSWORD)
+// Global error handler
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("Unhandled error:", err);
 
-        res.json({
-            token
-        })
-    } else {
-        res.status(403).json({
-            message: "Incorrrect credentials"
-        })
-    }
-})
+  if (err instanceof SyntaxError && "body" in err) {
+    res.status(400).json({ message: "Malformed JSON payload" });
+    return;
+  }
 
-app.post("/api/v1/content", userMiddleware, async (req, res) => {
-    const link = req.body.link;
-    const type = req.body.type;
-    await ContentModel.create({
-        link,
-        type,
-        title: req.body.title,
-        userId: req.userId,
-        tags: []
-    })
+  res.status(err.status || 500).json({
+    message: err.message || "An unexpected internal server error occurred",
+  });
+});
 
-    res.json({
-        message: "Content added"
-    })
-    
-})
+const startServer = async () => {
+  try {
+    await connectDB();
 
-app.get("/api/v1/content", userMiddleware, async (req, res) => {
-    // @ts-ignore
-    const userId = req.userId;
-    const content = await ContentModel.find({
-        userId: userId
-    }).populate("userId", "username")
-    res.json({
-        content
-    })
-})
-
-app.delete("/api/v1/content", userMiddleware, async (req, res) => {
-    const contentId = req.body.contentId;
-
-    await ContentModel.deleteMany({
-        contentId,
-        userId: req.userId
-    })
-
-    res.json({
-        message: "Deleted"
-    })
-})
-
-app.post("/api/v1/brain/share", userMiddleware, async (req, res) => {
-    const share = req.body.share;
-    if (share) {
-            const existingLink = await LinkModel.findOne({
-                userId: req.userId
-            });
-
-            if (existingLink) {
-                res.json({
-                    hash: existingLink.hash
-                })
-                return;
-            }
-            const hash = random(10);
-            await LinkModel.create({
-                userId: req.userId,
-                hash: hash
-            })
-
-            res.json({
-                hash
-            })
-    } else {
-        await LinkModel.deleteOne({
-            userId: req.userId
-        });
-
-        res.json({
-            message: "Removed link"
-        })
-    }
-})
-
-app.get("/api/v1/brain/:shareLink", async (req, res) => {
-    const hash = req.params.shareLink;
-
-    const link = await LinkModel.findOne({
-        hash
+    app.listen(PORT, () => {
+      console.log(`Second Brain backend server running on http://localhost:${PORT}`);
     });
+  } catch (error) {
+    console.error("Server startup failed:", error);
+    process.exit(1);
+  }
+};
 
-    if (!link) {
-        res.status(411).json({
-            message: "Sorry incorrect input"
-        })
-        return;
-    }
-    // userId
-    const content = await ContentModel.find({
-        userId: link.userId
-    })
+void startServer();
 
-    console.log(link);
-    const user = await UserModel.findOne({
-        _id: link.userId
-    })
-
-    if (!user) {
-        res.status(411).json({
-            message: "user not found, error should ideally not happen"
-        })
-        return;
-    }
-
-    res.json({
-        username: user.username,
-        content: content
-    })
-
-})
-
-app.listen(3000);      
+export default app;

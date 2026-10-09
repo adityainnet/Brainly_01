@@ -29,3 +29,14 @@ npm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Python & AI Service
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+ai-service/cache/
+*.pkl
